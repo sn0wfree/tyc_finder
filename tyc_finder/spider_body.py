@@ -25,26 +25,26 @@ class SpiderSession(object):
         return driver
 
     @staticmethod
-    def create_driver_Chrome(headless):
+    def create_driver_Chrome(executable_path, headless=True):
         if headless:
             option = webdriver.ChromeOptions()
             option.add_argument('headless')
-            driver = webdriver.Chrome(chrome_options=option)
+            driver = webdriver.Chrome(executable_path, chrome_options=option)
         else:
             driver = webdriver.Chrome()
 
         return driver
 
     @classmethod
-    def create_session(cls, core='Chrome', headless=True, adaptive=True):
+    def create_session(cls, executable_path, core='Chrome', headless=True, adaptive=True):
         if core == 'Chrome':
-            driver = cls.create_driver_Chrome(headless=headless)
+            driver = cls.create_driver_Chrome(executable_path, headless=headless)
             driver = cls._adpative(driver, adaptive=adaptive)
         else:
             raise ValueError('unsupported driver!')
         return driver
 
 
-
-
-
+if __name__ == '__main__':
+    SpiderSession.create_session(executable_path='tyc_finder/drivers/chromedriver_mac')
+    pass
