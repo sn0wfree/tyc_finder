@@ -1,24 +1,31 @@
 # -*- coding: utf-8 -*-
-import time
+import time, gevent
 import re
 import pandas as pd
 from bs4 import BeautifulSoup
-from selenium import webdriver
 
-from selenium.webdriver.support.wait import WebDriverWait
 from collections import OrderedDict
-from tyc_finder.utils import WriterJson
+from tyc_finder.tools.utils import WriterJson
 
 from tyc_finder.spider_body import SpiderSession
+
+username = '1'
+password = '1'
+account_info = dict(username=username, password=password)
 
 
 class Tianyancha_login(object):
 
-    def __init__(self, headless=False):
+    def __init__(self, driver, login_url='https://www.tianyancha.com/login'):
 
-        self.headless = headless
+        self.driver = driver
+        self.login_url = login_url
         # self.username = username
         # self.password = password
+
+    def get_url(self, url):
+        self.driver.get(url)
+        gevent.sleep(1)
 
     # 常量定义
 
@@ -28,23 +35,22 @@ class Tianyancha_login(object):
     #     self.headless = headless
     #     self.driver = self.login(text_login='请输入11位手机号码', text_password='请输入登录密码')
 
-    def login_process(self, login_url='https://www.tianyancha.com/login', username, password):
-        self.driver.get(login_url)
-        time.sleep(1)
+    def login_process(self, account_info, login_url='https://www.tianyancha.com/login'):
+        time_start = time.time()
+        # 操作行为提示
+        print('the username and password will autofill, please do not move cursor or use keyboards !')
+        # open login_url
+        self.get_url(login_url)
 
         # self.driver WebDriverWait
 
     # 登录天眼查
-    def login(self,executable_path, text_login, text_password):
+    def login(self, executable_path, text_login, text_password):
         time_start = time.time()
 
-        # 操作行为提示
-        print('在自动输入完用户名和密码前，请勿操作鼠标键盘！请保持优雅勿频繁（间隔小于1分钟）登录以减轻服务器负载。')
-        driver = SpiderSession.create_session(executable_path,core='Chrome', headless=self.headless, adaptive=True)
+        driver = SpiderSession.create_driver(executable_path, core='Chrome', headless=self.headless, adaptive=True)
 
         driver.get(self.url)
-
-
 
         # 模拟登陆：Selenium Locating Elements by Xpath
         time.sleep(1)
