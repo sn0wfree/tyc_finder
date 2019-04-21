@@ -28,90 +28,279 @@ class ParseSinglePage(object):
         return driver
         # driver.get(url)
 
+
+class ParseCompanyBackGroundInfo(object):
     @staticmethod
-    def test():
-        url = ParseSinglePage.test_url()
-        driver = ParseSinglePage._temp_driver()
-        driver.get(url)
+    def test123(trs):
+        for tr in trs:
+            for t in tr.xpath("""td"""):
+                if t.getchildren():  # if not []
+                    tag = t.getchildren()[0].tag
+                    if tag == 'img':
+                        yield t.getchildren()[0].attrib
+                    else:
+                        yield t.getchildren()[0].text
+                else:
+                    yield t.text
 
-        CookieParser.load_refresh_cookies(driver, cookies_file='cookies.json', public='cookies/', refresh=False)
+    @staticmethod
+    def parse_table(tr):
+        for t in tr.xpath("""td"""):
+            if t.getchildren():  # if not []
+                tag = t.getchildren()[0].tag
+                if tag == 'img':
+                    yield t.getchildren()[0].attrib
+                else:
+                    yield t.getchildren()[0].text
+            else:
+                yield t.text
 
-        page_source = driver.page_source.encode('utf-8')
-        soup1 = HTML(page_source)
-        base = """//*[@id="web-content"]//div[@class="company-warp -public"]"""
-        holder = soup1.xpath(base + '/*')
-        print(len(holder))
-        same_path = base + """/div[@class='{}'"""
+    @staticmethod
+    def special_parse_table(tr):
+        name, info = tr.getchildren()
 
-        l0 = holder[0]  # same_path.format("company-tabwarp -abs")
-        basic_info = l1 = holder[1]  # same_path.format("tabline") # basic info
-        tyc_risk = l2 = holder[2]  # same_path.format("tabline")
+        name_text = name.text
+        if name_text == '注册地址':
+            yield [name_text, info.text]
+        else:
+            yield [name_text, info.xpath("""*//text()""")]
 
-        l3 = holder[3]  # same_path.format("tabline")
-        detail_info = l4 = holder[4]  # same_path.format("container")
-        print(1)
+    @classmethod
+    def get_detail_info(cls, table2):
+        trs = table2.xpath("""tbody/tr""")
+        hold = {}
+        for row, tr in enumerate(trs):
+            reuslt = list(cls.parse_table(tr))
+            if reuslt[0] in ["注册地址", "经营范围"]:
+                hold[row] = cls.special_parse_table(tr)
+            else:
+                hold[row] = reuslt
+
+    @staticmethod
+    def get_legal_representative(table1_lr):
+        """
+
+        company_count: 198
+        name_dict : {'class': 'link-click', 'target': '_blank', 'title': '黄明端', 'href': 'https://www.tianyancha.com/human/2298666790-c68521782', 'onclick': 'common.stopPropagation(event)'}
+
+        :param table1_lr:
+        :return: name_dict,company_count
+        """
+
+        name_, company = table1_lr.xpath("""tbody/tr/td[1]//div[@class='humancompany']/div""")
+        name_dict = name_.xpath("""a""")[0].attrib
+        company_count = company.xpath("""span/text()""")[0]
+        return name_dict, company_count
+
+    pass
+
+
+class GetContainer(object):
+    @staticmethod
+    def get_container_left_tabline(container):
+        """
+        parse container
+        :param container:
+        :return:
+        """
+        header, detail_list = \
+            container.xpath("""//div[@class='container-left tabline']/div[@class='box-container -main']""")[
+                0].getchildren()
+
+        return header, detail_list
+
+    def get_header(self):
+        pass
+
+    @staticmethod
+    def _parse_tables(ele):
+        data_header, data_content = ele.getchildren()
+
+        table1, table2 = GetBaseInfoDetail._getchildren_without_comment(data_content)
+        return table1, table2
+
+    @classmethod
+    def get_basic_info_1(cls, bb):
+        for ele in bb.xpath("""*"""):
+            """
+            <class 'list'>: [
+            <Element div at 0x10de2ab48>, <!-- 基本信息 -->
+            <Element div at 0x10de2ae08>, <!--天眼风险-->
+            <Element div at 0x10de2af08>, <!--股权穿透图--> {'class': 'block-data', 'tyc-event-click': '', 'tyc-event-ch': 'CompangyDetail.guquanchuantou'}
+            <Element div at 0x10d8edc08>, <!--[高管信息]-->
+            <Element div at 0x10d8ed608>, <!--[股东信息]-->
+            ... maybe have other sectors
+            <Element div at 0x10db654c8>, <!-- [最终受益人]-->
+            <Element div at 0x10db65548>, <!--[实际控制权]-->
+            <Element div at 0x10dbbef08>, <!-- graph 企业关系 -->
+            <Element div at 0x10dbbec48>, <!--变更信息oocss-->
+            <Element div at 0x10db65248>, <!-- graph 历史沿革 -->
+            <Element div at 0x10dd7c1c8>, <!--企业年报OOCSS-->
+            <Element div at 0x10dd7cb48>, <!--[分支机构]-->
+            
+            <Element div at 0x10dd7c4c8>]
+            """
+            if ele.attrib['class'] == 'block-data':
+                table1, table2 = cls._parse_tables(ele)
+                yield table1, table2
+            pass
+
+        pass
+
+    @classmethod
+    def get_detail_list(cls, detail_list):
+        for element in detail_list.xpath("""//div[@class='block-data-group']"""):
+            # yield element
+            length = len(list(element.attrib.keys()))
+            if length == 1 and 'class' in element.attrib.keys():  # 'id' not in element.attrib.keys() and 'tyc-event-ch' not in element.attrib.keys():
+                # basic
+                yield cls.get_basic_info_1(element)
+                pass
+            elif 'id' in element.attrib.keys():
+                if element.attrib['id'] == 'nav-main-lawDangerous':
+                    # {'class': 'block-data-group', 'id': 'nav-main-lawDangerous'}
+                    pass
+
+                elif element.attrib['id'] == 'nav-main-manageDangerous':
+
+                    # {'class': 'block-data-group', 'id': 'nav-main-manageDangerous'}
+                    pass
+
+                elif element.attrib['id'] == 'nav-main-develope':
+                    # {'class': 'block-data-group', 'id': 'nav-main-develope'}
+                    pass
+                elif element.attrib['id'] == 'nav-main-manageStatus':
+                    # {'class': 'block-data-group', 'id': 'nav-main-manageStatus'}
+                    pass
+                elif element.attrib['id'] == 'nav-main-knowledgeProperty':
+                    # {'class': 'block-data-group', 'id': 'nav-main-knowledgeProperty'}
+                    pass
+
+                elif element.attrib['id'] == 'nav-main-past':
+                    # {'class': 'block-data-group', 'id': 'nav-main-past'}
+                    pass
+                else:
+                    pass
+
+
+
+
+
+
+
+            elif 'id' not in element.attrib.keys() and 'tyc-event-ch' in element.attrib.keys():
+                pass
+                # {'class': 'block-data-group', 'tyc-event-click': '', 'tyc-event-ch': 'CompanyDetail.Wenda'}
+            else:
+                pass
+
+    # <!--上市信息-->
+    @staticmethod
+    def info_dict(element):
+        ids = ['nav-main-lawDangerous', 'nav-main-manageDangerous', 'nav-main-develope',
+               'nav-main-manageStatus', 'nav-main-knowledgeProperty', 'nav-main-past']
+        {'class': 'block-data-group', 'id': 'nav-main-lawDangerous'}
+        {'class': 'block-data-group', 'id': 'nav-main-manageDangerous'}
+        {'class': 'block-data-group', 'id': 'nav-main-develope'}
+        {'class': 'block-data-group', 'id': 'nav-main-manageStatus'}
+        {'class': 'block-data-group', 'id': 'nav-main-knowledgeProperty'}
+        {'class': 'block-data-group', 'id': 'nav-main-past'}
+        {'class': 'block-data-group', 'tyc-event-click': '', 'tyc-event-ch': 'CompanyDetail.Wenda'}
+
+
+class GetBaseInfoDetail(object):
+
+    @staticmethod
+    def _parse_small(a):
+        a_span = a.xpath("span[@class='label']")[0]
+        if '地址' in a_span.text:
+            address = a_span.getparent().xpath("//*[@id='company_base_info_address']/text()")[0].strip()
+            return a_span.text.rstrip('：')[:2], address
+        else:
+            return a_span.text.rstrip('：')[:2], a_span.getnext().text
+
+    @staticmethod
+    def _getchildren_without_comment(f00):
+        return [child for child in f00.getchildren() if not isinstance(child, _Comment)]
+
+    @classmethod
+    def base_info_detail(cls, content):
+        """
+        <class 'dict'>: {'电话': '021-26108008', '邮箱': 'fw03@mail.rt-mart.com.cn', '网址': 'www.rt-mart.com.cn', '地址': '上海市共和新路3318号', '简介': '康成投资（中国）有限公司于2005年3月23日在上海市工商局登记成立。法定代表人黄明端，公司经营范围包括一、在国家允许外商投资的领域依法进行投资等。'}
+
+        :param content:
+        :return:
+        """
+        base_info2 = content.xpath("""//div[@class='detail ']""")[0]
+
+        f00, f01, summary, claim_opt = cls._getchildren_without_comment(base_info2)
+        # f00, f01, summary, claim_opt = [child for child in base_info2.getchildren() if
+        #                                 not isinstance(child, _Comment)]
+        # a, b = getchildren_without_comment(f00)
+        # hs = {}
+
+        r = dict([cls._parse_small(x) for s in [f00, f01] for x in cls._getchildren_without_comment(s)])
+        ss = summary.xpath("div/div/span[@class='label']")[0]
+        r[ss.text.rstrip('：')[:2]] = ss.tail
+
+        """//*[@id="company_web_top"]/div[2]/div[2]/div[3]/div[3]/div/div/text()"""
+
+        return r
+
+
+class GetCompanyName(object):
+    # TODO:抽象化：频繁变换点
+    @staticmethod
+    def _parse_company_name(content):
+        company_name = content.find_element_by_xpath("//div[@class='header']/h1[@class='name']").text
+        return company_name
 
 
 class BasicInfoParser(object):
     # TODO: 改善Base_info稳健性
+
     @staticmethod
     def get_base_info(basic_info):
         hold = basic_info.xpath("""//div[@class='box -company-box ']/*""")
         if len(hold) == 3:
             logo, content, triangle_xcx = hold
-            logo_img = logo.find_elements_by_xpath("""/*""")
+            return logo, content, triangle_xcx
+        else:
+            raise ValueError('Basic Information cannot be parsed normally !')
 
-        base_table = {}
-
-        # TODO:抽象化：频繁变换点
-        def parse_content(content):
-            company_name = content.find_element_by_xpath("//div[@class='header']/h1[@class='name']").text
-            return company_name
-
-        def base_info_tag_list_content():
-            # < !--开业状态 -->
-            pass
-
-        def base_info_detail(content):
-            base_info2 = content.xpath("""//div[@class='detail ']""")[0]
-
-            def getchildren_without_comment(f00):
-                return [child for child in f00.getchildren() if not isinstance(child, _Comment)]
-
-            def parse_small(a):
-                a_span = a.xpath("span[@class='label']")[0]
-                if '地址' in a_span.text:
-                    address = a_span.getparent().xpath("//*[@id='company_base_info_address']/text()")[0].strip()
-                    return a_span.text.rstrip('：')[:2], address
-                else:
-
-                    return a_span.text.rstrip('：')[:2], a_span.getnext().text
-
-            f00, f01, summary, claim_opt = getchildren_without_comment(base_info2)
-            # f00, f01, summary, claim_opt = [child for child in base_info2.getchildren() if
-            #                                 not isinstance(child, _Comment)]
-            # a, b = getchildren_without_comment(f00)
-            # hs = {}
-
-            r = dict([parse_small(x) for s in [f00, f01] for x in getchildren_without_comment(s)])
-            ss = summary.xpath("div/div/span[@class='label']")[0]
-            r[ss.text.rstrip('：')[:2]] = ss.tail
-
-            """//*[@id="company_web_top"]/div[2]/div[2]/div[3]/div[3]/div/div/text()"""
-
-            return r
-
-            # a, b = [child for child in f00.getchildren() if not isinstance(child, _Comment)]
-
-            ## 爬取数据不完整,要支持展开和多项合并
-            # base_table['电话'] = base_info2.text.split('电话：')[1].split('邮箱：')[0].split('查看')[0]
-            # base_table['邮箱'] = base_info2.text.split('邮箱：')[1].split('\n')[0].split('查看')[0]
-            # base_table['网址'] = base_info2.text.split('网址：')[1].split('地址')[0]
-            # base_table['地址'] = base_info2.text.split('地址：')[1].split('\n')[0]
+    @staticmethod
+    def get_simple_info(content):
+        """
+        <class 'dict'>: {'电话': '021-26108008', '邮箱': 'fw03@mail.rt-mart.com.cn', '网址': 'www.rt-mart.com.cn', '地址': '上海市共和新路3318号', '简介': '康成投资（中国）有限公司于2005年3月23日在上海市工商局登记成立。法定代表人黄明端，公司经营范围包括一、在国家允许外商投资的领域依法进行投资等。'}
 
 
-        def base_info_card(content):
-            pass
+        :param content:
+        :return:
+        """
+        return GetBaseInfoDetail.base_info_detail(content)
+
+    @staticmethod
+    def get_logo(logo):
+        """
+        return logo info and data src
+        :param logo:
+        :return:
+        """
+
+        logo_img = logo.xpath("""div[1]/*/img[@class='img']""")[0]
+
+        visitor_count = logo.xpath("""div[@class='visitor-content']/*//span[@class='pv-txt']/text()""")[0]
+        logo_dict = logo_img.attrib
+        logo_dict['visitor_count'] = visitor_count
+        return logo_dict
+
+    @staticmethod
+    def base_info_tag_list_content():
+        # < !--开业状态 -->
+        pass
+
+    def base_info_card(content):
+        pass
 
         # try:
         #     abstract = driver.find_element_by_xpath("//div[@class='summary']/script")  # @class='sec-c2 over-hide'
@@ -151,11 +340,56 @@ class BasicInfoParser(object):
         #
         # return pd.DataFrame([base_table])
 
-        # pass
+        pass
+
+
+class Test(object):
+    @staticmethod
+    def test():
+        url = ParseSinglePage.test_url()
+        driver = ParseSinglePage._temp_driver()
+        driver.get(url)
+
+        CookieParser.load_refresh_cookies(driver, cookies_file='cookies.json', public='cookies/', refresh=False)
+
+        page_source = driver.page_source.encode('utf-8')
+        soup1 = HTML(page_source)
+        base = """//*[@id="web-content"]//div[@class="company-warp -public"]"""
+        holder = soup1.xpath(base + '/*')
+        print(len(holder))
+        same_path = base + """/div[@class='{}'"""
+
+        l0 = holder[0]  # same_path.format("company-tabwarp -abs")
+        basic_info = l1 = holder[1]  # same_path.format("tabline") # basic info
+        tyc_risk = l2 = holder[2]  # same_path.format("tabline")
+
+        l3 = holder[3]  # same_path.format("tabline")
+        container = l4 = holder[4]  # same_path.format("container")
+        print(1)
+        return l0, basic_info, tyc_risk, l3, container
+
+    @staticmethod
+    def parse_basic_info(basic_info):
+        logo, content, triangle_xcx = BasicInfoParser.get_base_info(basic_info)
+
+        # parse logo
+        logo_dict = BasicInfoParser.get_logo(logo)
+
+        # parse content
+        simple_info = BasicInfoParser.get_simple_info(content)
+
+        return logo_dict, simple_info
+
+    @staticmethod
+    def parse_container(container):
+        header, detail_list = GetContainer.get_container_left_tabline(container)
+
+        GetContainer.get_detail_list(detail_list)
+        pass
 
 
 if __name__ == '__main__':
-    ParseSinglePage.test()
+    Test.test()
 
     print(1)
     pass
