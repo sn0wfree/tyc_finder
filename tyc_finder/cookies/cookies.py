@@ -48,6 +48,8 @@ class CookieParser(object):
 
     @classmethod
     def load_refresh_cookies(cls, driver, cookies_file, public='tyc_finder/cookies/', refresh=True):
-        cls.read_insert_cookies(driver, cookies_file, public=public)
         if refresh:
             cls.save_cookies(driver, cookies_file, public)
+        else:
+            cls.read_insert_cookies(driver, cookies_file, public=public)
+

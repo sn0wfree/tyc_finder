@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import time
 from tyc_finder.spider_body import SpiderSession, Spider
 from tyc_finder.base import BasicFuncs
 from tyc_finder.searchtool import SearchTool
@@ -7,6 +7,9 @@ from tyc_finder.login import TycLogin
 from bs4 import BeautifulSoup
 from lxml.etree import HTML, _Comment
 from tyc_finder.cookies.cookies import CookieParser
+import pandas as pd
+
+from tyc_finder.mi import other_scraper,Tianyancha
 
 
 class ParseSinglePage(object):
@@ -46,35 +49,36 @@ class ParseCompanyBackGroundInfo(object):
     @staticmethod
     def parse_table(tr):
         for t in tr.xpath("""td"""):
-            if t.getchildren():  # if not []
-                tag = t.getchildren()[0].tag
+            t_getchildren = t.getchildren()
+            if t_getchildren:  # if not []
+                tag = t_getchildren[0].tag
                 if tag == 'img':
-                    yield t.getchildren()[0].attrib
+                    yield t_getchildren[0].attrib
                 else:
-                    yield t.getchildren()[0].text
+                    yield t_getchildren[0].text
             else:
                 yield t.text
 
     @staticmethod
     def special_parse_table(tr):
         name, info = tr.getchildren()
-
         name_text = name.text
         if name_text == '注册地址':
-            yield [name_text, info.text]
+            return [name_text, info.text]
         else:
-            yield [name_text, info.xpath("""*//text()""")]
+            return [name_text, info.xpath("""*//text()""")]
 
     @classmethod
-    def get_detail_info(cls, table2):
-        trs = table2.xpath("""tbody/tr""")
+    def get_detail_info(cls, table2, special_list=["注册地址", "经营范围"]):
+
         hold = {}
-        for row, tr in enumerate(trs):
+        for row, tr in enumerate(table2.xpath("""tbody/tr""")):
             reuslt = list(cls.parse_table(tr))
-            if reuslt[0] in ["注册地址", "经营范围"]:
+            if reuslt[0] in special_list:
                 hold[row] = cls.special_parse_table(tr)
             else:
                 hold[row] = reuslt
+        return hold
 
     @staticmethod
     def get_legal_representative(table1_lr):
@@ -90,7 +94,14 @@ class ParseCompanyBackGroundInfo(object):
         name_, company = table1_lr.xpath("""tbody/tr/td[1]//div[@class='humancompany']/div""")
         name_dict = name_.xpath("""a""")[0].attrib
         company_count = company.xpath("""span/text()""")[0]
-        return name_dict, company_count
+        name_dict['own_company_count'] = company_count
+        return name_dict
+
+    @classmethod
+    def parse_back_ground_info(cls, table1_lr, table2):
+        name_dict = cls.get_legal_representative(table1_lr)
+        detail_background_info = cls.get_detail_info(table2)
+        return dict(name_dict=name_dict, detail_background_info=detail_background_info)
 
     pass
 
@@ -113,15 +124,58 @@ class GetContainer(object):
         pass
 
     @staticmethod
-    def _parse_tables(ele):
-        data_header, data_content = ele.getchildren()
+    def _parse_nav_main_baseInfo(data_header, data_content):
+
+        data_title = data_header.xpath("""span[@class='data-title']/text()""")[0]
+        industry_commerce_snapshot = data_header.xpath("""span[@class='tips-block-data']/a""")[0].attrib
 
         table1, table2 = GetBaseInfoDetail._getchildren_without_comment(data_content)
-        return table1, table2
+
+        back_ground_info_dict = ParseCompanyBackGroundInfo.parse_back_ground_info(table1, table2)
+        back_ground_info_dict[data_title] = industry_commerce_snapshot
+        return back_ground_info_dict
+
+        pass
 
     @classmethod
-    def get_basic_info_1(cls, bb):
-        for ele in bb.xpath("""*"""):
+    def _parser_nae_main_sector_info_router(cls, ele):
+
+        conditions = ['nav-main-baseInfo',
+                      'nav-main-riskInfo',  # nav-main-riskInfo  <!--天眼风险-->
+                      'nav-main-graphTreeInfo',  # nav-main-graphTreeInfo <!--股权穿透图-->
+                      'nav-main-staffCount',  # nav-main-staffCount <!--[高管信息]-->
+                      'nav-main-holderCount',  # nav-main-holderCount <!--[股东信息]-->
+                      'nav-main-inverstCount',  # nav-main-inverstCount <!--[对外投资]-->
+                      'nav-main-shouyirenCount',  # nav-main-shouyirenCount  <!-- [最终受益人]-->
+                      'nav-main-realHoldingCount',  # nav-main-realHoldingCount 实际控制权
+                      'nav-main-graphInfo',  # nav-main-graphInfo <!-- graph 企业关系 -->
+                      'nav-main-changeCount',  # nav-main-changeCount  <!--变更信息oocss-->
+                      'nav-main-graphTimeInfo',  # nav-main-graphTimeInfo  <!-- graph 历史沿革 -->
+                      'nav-main-reportCount',  # nav-main-reportCount <!--企业年报OOCSS-->
+                      'nav-main-branchCount'  # nav-main-branchCount <!--[分支机构]-->
+                      ]
+
+        data_header, data_content = GetBaseInfoDetail._getchildren_without_comment(ele)
+        if 'id' in ele.attrib.keys():
+            nav_main_sector_name = ele.attrib['id']
+            pass
+        elif 'id' in data_header.attrib.keys():
+            nav_main_sector_name = data_header.attrib['id']
+            pass
+        else:
+            raise ValueError('cannot find id label! ')
+        if nav_main_sector_name in ['nav-main-baseInfo']:
+            ## TODO to parse more
+
+            return getattr(cls, '_parse_{}'.format(nav_main_sector_name.replace('-', '_')))(data_header, data_content)
+        else:
+            return "[Error] {} is not supported yet!".format(nav_main_sector_name)
+
+        pass
+
+    @classmethod
+    def get_basic_info_1(cls, element):
+        for ele in element.xpath("""*"""):
             """
             <class 'list'>: [
             <Element div at 0x10de2ab48>, <!-- 基本信息 -->
@@ -141,54 +195,113 @@ class GetContainer(object):
             <Element div at 0x10dd7c4c8>]
             """
             if ele.attrib['class'] == 'block-data':
-                table1, table2 = cls._parse_tables(ele)
-                yield table1, table2
-            pass
+                yield cls._parser_nae_main_sector_info_router(ele)
+
+
+
+            # table1, table2 = cls._parse_tables(ele)
+            # table1 : header
+            # table2 : data-content
+            # yield table1, table2
+            else:
+                pass
 
         pass
 
+    @staticmethod
+    def get_table_info(table):
+        tab = table.find_element_by_tag_name('table')
+        df = pd.read_html('<table>' + tab.get_attribute('innerHTML') + '</table>')
+        if isinstance(df, list):
+            df = df[0]
+        if '操作' in df.columns:
+            df = df.drop(columns='操作')
+        # TODO：加入更多标准的表格处理条件
+        return df
+
     @classmethod
     def get_detail_list(cls, detail_list):
-        for element in detail_list.xpath("""//div[@class='block-data-group']"""):
+
+        unspported_list = ['nav-main-manageDangerous', 'nav-main-develope', 'nav-main-manageStatus', 'nav-main-past']
+
+        for row, element in enumerate(detail_list.xpath("""//div[@class='block-data-group']""")):
             # yield element
-            length = len(list(element.attrib.keys()))
-            if length == 1 and 'class' in element.attrib.keys():  # 'id' not in element.attrib.keys() and 'tyc-event-ch' not in element.attrib.keys():
+            element_attrib_keys = list(element.attrib.keys())
+            length = len(element_attrib_keys)
+            # basic
+            if length == 1 and 'id' not in element_attrib_keys and 'tyc-event-ch' not in element_attrib_keys and 'class' in element_attrib_keys:
                 # basic
-                yield cls.get_basic_info_1(element)
+                yield list(cls.get_basic_info_1(element))
                 pass
-            elif 'id' in element.attrib.keys():
+            elif 'id' in element_attrib_keys:
+                # 司法风险
                 if element.attrib['id'] == 'nav-main-lawDangerous':
+
+                    "block-data table-col-warp"
+                    '开庭公告', """[@tyc-event-ch='CompangyDetail.kaitinggonggao']"""
+                    kaitinggonggao = element.xpath("""*[@tyc-event-ch='CompangyDetail.kaitinggonggao']""")[0]
+
+                    data_header, data_content = GetBaseInfoDetail._getchildren_without_comment(kaitinggonggao)
+                    # 开庭公告
+                    announcementCount = data_header.xpath("""span[@class='data-count -warn']""")[0].text
+
+                    # =data_content.xpath("""*""")
+
+                    table_xpath = """//*[@id="_container_announcementcourt"]/table"""
+
+                    thead = data_content.xpath("""//*[@id="_container_announcementcourt"]/table/thead""")[0]
+
+                    header = thead.xpath("""tr/th/text()""")
+
+                    tr0 = data_content.xpath("""//*[@id="_container_announcementcourt"]/table/tbody/tr""")[0]
+
+                    """//*[@id="_container_announcementcourt"]/div/ul"""
+                    """//*[@id="_container_announcementcourt"]/div/ul/li"""
+
+                    # last_page = driver.find_elements_by_xpath("""//*[@id="_container_announcementcourt"]/div/ul/li""")[
+                    #     -1].find_elements_by_xpath("""a""")[0].get_attribute('class')
+                    while 1:
+                        last_page = \
+                            driver.find_elements_by_xpath("""//*[@id="_container_announcementcourt"]/div/ul/li""")[
+                                -1].find_elements_by_xpath("""a""")[0].get_attribute('class')
+                        if last_page == 'num -current':
+                            break
+
+                        else:
+
+                            # parse_table()
+
+                            driver.find_elements_by_xpath("""//*[@id="_container_announcementcourt"]/div/ul/li""")[
+                                -1].click()
+
                     # {'class': 'block-data-group', 'id': 'nav-main-lawDangerous'}
                     pass
 
-                elif element.attrib['id'] == 'nav-main-manageDangerous':
-
-                    # {'class': 'block-data-group', 'id': 'nav-main-manageDangerous'}
-                    pass
-
-                elif element.attrib['id'] == 'nav-main-develope':
-                    # {'class': 'block-data-group', 'id': 'nav-main-develope'}
-                    pass
-                elif element.attrib['id'] == 'nav-main-manageStatus':
-                    # {'class': 'block-data-group', 'id': 'nav-main-manageStatus'}
-                    pass
                 elif element.attrib['id'] == 'nav-main-knowledgeProperty':
+
+                    # knowledgeProperty = detail_list.xpath("""//div[@class='block-data-group']""")[5]
                     # {'class': 'block-data-group', 'id': 'nav-main-knowledgeProperty'}
                     pass
 
-                elif element.attrib['id'] == 'nav-main-past':
-                    # {'class': 'block-data-group', 'id': 'nav-main-past'}
-                    pass
+                elif element.attrib['id'] in unspported_list:  # == 'nav-main-manageDangerous':
+
+                    yield "[error] {} is not supported yet!".format(element.attrib['id'])
+
+                    # {'class': 'block-data-group', 'id': 'nav-main-manageDangerous'}
+
+                # elif element.attrib['id'] == 'nav-main-develope':
+                #     # {'class': 'block-data-group', 'id': 'nav-main-develope'}
+                #     pass
+                # elif element.attrib['id'] == 'nav-main-manageStatus':
+                #     # {'class': 'block-data-group', 'id': 'nav-main-manageStatus'}
+                #     pass
+
+                # elif element.attrib['id'] == 'nav-main-past':
+                #     # {'class': 'block-data-group', 'id': 'nav-main-past'}
+                #     pass
                 else:
                     pass
-
-
-
-
-
-
-
-            elif 'id' not in element.attrib.keys() and 'tyc-event-ch' in element.attrib.keys():
+            elif 'id' not in element_attrib_keys and 'tyc-event-ch' in element_attrib_keys:
                 pass
                 # {'class': 'block-data-group', 'tyc-event-click': '', 'tyc-event-ch': 'CompanyDetail.Wenda'}
             else:
@@ -199,13 +312,13 @@ class GetContainer(object):
     def info_dict(element):
         ids = ['nav-main-lawDangerous', 'nav-main-manageDangerous', 'nav-main-develope',
                'nav-main-manageStatus', 'nav-main-knowledgeProperty', 'nav-main-past']
-        {'class': 'block-data-group', 'id': 'nav-main-lawDangerous'}
-        {'class': 'block-data-group', 'id': 'nav-main-manageDangerous'}
-        {'class': 'block-data-group', 'id': 'nav-main-develope'}
-        {'class': 'block-data-group', 'id': 'nav-main-manageStatus'}
-        {'class': 'block-data-group', 'id': 'nav-main-knowledgeProperty'}
-        {'class': 'block-data-group', 'id': 'nav-main-past'}
-        {'class': 'block-data-group', 'tyc-event-click': '', 'tyc-event-ch': 'CompanyDetail.Wenda'}
+        var = [{'class': 'block-data-group', 'id': 'nav-main-lawDangerous'},
+               {'class': 'block-data-group', 'id': 'nav-main-manageDangerous'},
+               {'class': 'block-data-group', 'id': 'nav-main-develope'},
+               {'class': 'block-data-group', 'id': 'nav-main-manageStatus'},
+               {'class': 'block-data-group', 'id': 'nav-main-knowledgeProperty'},
+               {'class': 'block-data-group', 'id': 'nav-main-past'},
+               {'class': 'block-data-group', 'tyc-event-click': '', 'tyc-event-ch': 'CompanyDetail.Wenda'}]
 
 
 class GetBaseInfoDetail(object):
@@ -345,18 +458,9 @@ class BasicInfoParser(object):
 
 class Test(object):
     @staticmethod
-    def test():
-        url = ParseSinglePage.test_url()
-        driver = ParseSinglePage._temp_driver()
-        driver.get(url)
-
-        CookieParser.load_refresh_cookies(driver, cookies_file='cookies.json', public='cookies/', refresh=False)
-
-        page_source = driver.page_source.encode('utf-8')
-        soup1 = HTML(page_source)
-        base = """//*[@id="web-content"]//div[@class="company-warp -public"]"""
-        holder = soup1.xpath(base + '/*')
-        print(len(holder))
+    def split_five_parts(html_source_code, base="""//*[@id="web-content"]//div[@class="company-warp -public"]"""):
+        holder = html_source_code.xpath(base + '/*')
+        # print(len(holder))
         same_path = base + """/div[@class='{}'"""
 
         l0 = holder[0]  # same_path.format("company-tabwarp -abs")
@@ -365,8 +469,54 @@ class Test(object):
 
         l3 = holder[3]  # same_path.format("tabline")
         container = l4 = holder[4]  # same_path.format("container")
-        print(1)
+        # print(1)
         return l0, basic_info, tyc_risk, l3, container
+
+    @classmethod
+    def test(cls, keyword, url=None):
+        url = ParseSinglePage.test_url() if url is None else url
+        driver = ParseSinglePage._temp_driver()
+
+        driver.get(url)
+        time.sleep(1)
+        CookieParser.load_refresh_cookies(driver, cookies_file='cookies.json', public='cookies/', refresh=False)
+
+        url_search = 'http://www.tianyancha.com/search?key=%s&checkFrom=searchBox' % keyword
+        driver.get(url)
+
+        table_dict = Tianyancha.tianyancha_scraper(driver, keyword)
+        return table_dict
+
+    @classmethod
+    def main_path(cls, url=None):
+        url = ParseSinglePage.test_url() if url is None else url
+        driver = ParseSinglePage._temp_driver()
+
+        driver.get(url)
+        time.sleep(1)
+        CookieParser.load_refresh_cookies(driver, cookies_file='cookies.json', public='cookies/', refresh=False)
+        driver.get(url)
+
+        # load cookies
+
+        # get source code
+        page_source = driver.page_source.encode('utf-8')
+        html_source_code = HTML(page_source)
+
+        # holder = html_source_code.xpath(base + '/*')
+        # # print(len(holder))
+        # same_path = base + """/div[@class='{}'"""
+        #
+        # l0 = holder[0]  # same_path.format("company-tabwarp -abs")
+        # basic_info = l1 = holder[1]  # same_path.format("tabline") # basic info
+        # tyc_risk = l2 = holder[2]  # same_path.format("tabline")
+        #
+        # l3 = holder[3]  # same_path.format("tabline")
+        # container = l4 = holder[4]  # same_path.format("container")
+        # # print(1)
+        l0, basic_info, tyc_risk, l3, container = cls.split_five_parts(html_source_code)
+
+        return l0, basic_info, tyc_risk, l3, container, driver
 
     @staticmethod
     def parse_basic_info(basic_info):
@@ -389,7 +539,20 @@ class Test(object):
 
 
 if __name__ == '__main__':
-    Test.test()
+    l0, basic_info, tyc_risk, l3, container, driver = Test.main_path()
+    logo_dict, simple_info = Test.parse_basic_info(basic_info)
+    header, detail_list = GetContainer.get_container_left_tabline(container)
+
+    knowledgeProperty = detail_list.xpath("""//div[@class='block-data-group']""")[5]
+    lawDangerous = detail_list.xpath("""//div[@class='block-data-group']""")[1]
+    element = detail_list.xpath("""//div[@class='block-data-group']""")[0]
+    ele = element.xpath("""*""")[1]
+
+    data_header, data_content = GetBaseInfoDetail._getchildren_without_comment(ele)
+
+    back_ground_info_dict = GetContainer._parser_nae_main_sector_info_router(ele)
+
+
 
     print(1)
     pass
